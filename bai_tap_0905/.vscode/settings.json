@@ -1,6 +1,7 @@
 {
     "C_Cpp.errorSquiggles": "disabled",
     "files.associations": {
-        "ioctl.h": "c"
+        "ioctl.h": "c",
+        "select.h": "c"
     }
 }
