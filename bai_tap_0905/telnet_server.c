@@ -176,7 +176,7 @@ int main()
                         }
                         fclose(file);
                         if(!found) {
-                            if (send(clients[i].sockfd, "Invalit taikhoan. Please try again!\n", 37, 0) < 0)
+                            if (send(clients[i].sockfd, "Invalid taikhoan. Please try again!\n", 37, 0) < 0)
                             {
                                 perror("send() failed");
                                 continue;
