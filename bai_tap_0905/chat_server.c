@@ -65,7 +65,7 @@ int main()
     while (1)
     {
         struct pollfd fds[MAX_CLIENT];
-         int nfds = 1;
+        int nfds = 1;
         fds[0].fd = server;
         fds[0].events = POLLIN;
 
@@ -100,10 +100,6 @@ int main()
             int client = accept(server, (struct sockaddr *)&client_addr, &client_addr_len);
             if (nfds < MAX_CLIENT)
             {
-                // printf("New client connected: %d\n", client);
-                // fds[nfds].fd = client;
-                // fds[nfds].events = POLLIN;
-                // nfds++;
                 clients[client_count].sockfd = client;
                 clients[client_count].addr = client_addr;
                 strcpy(clients[client_count].id, "");

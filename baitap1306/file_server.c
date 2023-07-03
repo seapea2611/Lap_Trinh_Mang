@@ -1,171 +1,127 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <dirent.h>
-#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <netdb.h>
+#include <poll.h>
+#include <dirent.h>
+#include <signal.h>
+#include <sys/wait.h>
 
-#define PORT 9000
-#define BUFFER_SIZE 1024
+// void signalHandler(int signo)
+// {
+//     int pid = wait(NULL);
+//     printf("Child %d terminated.\n", pid);
+// }
 
-void send_file_list(int client_socket);
-void send_file_content(int client_socket, char* filename);
-
-int main() {
-    int server_fd, client_socket, pid;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t client_len = sizeof(client_addr);
-
-    // Create socket
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1) {
-        perror("Socket creation failed");
-        exit(EXIT_FAILURE);
+int main()
+{
+    int listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listener == -1)
+    {
+        perror("socket() failed");
+        return 1;
     }
 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(9000);
 
-    // Bind the socket to the specified port
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        perror("Socket bind failed");
-        exit(EXIT_FAILURE);
+    if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)))
+    {
+        perror("bind() failed");
+        return 1;
     }
 
-    // Listen for incoming connections
-    if (listen(server_fd, 5) == -1) {
-        perror("Socket listen failed");
-        exit(EXIT_FAILURE);
+    if (listen(listener, 5))
+    {
+        perror("listen() failed");
+        return 1;
     }
 
-    printf("Server listening on port %d...\n", PORT);
+    while (1)
+    {
+        printf("Waiting for new client.\n");
+        int client = accept(listener, NULL, NULL);
+        printf("New client accepted: %d.\n", client);
+        if (fork() == 0)
+        {
+            close(listener);
+            char buf[256];
+            char filenames[1000] = "";
+            int count = 0;
+            while (1)
+            {
+                DIR *dir;
+                struct dirent *entry;
 
-    while (1) {
-        // Accept new client connection
-        client_socket = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
-        if (client_socket == -1) {
-            perror("Socket accept failed");
-            exit(EXIT_FAILURE);
+                // Mở thư mục
+                dir = opendir(".");
+                if (dir == NULL)
+                {
+                    char *msg = "ERROR No files to download\r\n";
+                    send(client, msg,strlen(msg), 0);
+                    return 1;
+                }
+
+                // Duyệt các tệp và thư mục trong thư mục
+                while ((entry = readdir(dir)) != NULL)
+                {
+                    strcat(filenames, entry->d_name);  // Ghép tên vào chuỗi kết quả
+                    strcat(filenames, "\n");  // Thêm khoảng trắng giữa các tên
+                    if (entry->d_type == DT_REG) {  // Kiểm tra nếu là file
+                         count++;
+                    }
+                }
+                if(count == 0) {
+                    char *msg = "ERROR No files to download\r\n";
+                    send(client, msg,strlen(msg), 0);
+                    return 1;
+                }
+                // char *buff = "OK %d\r\n%s, count, filenames";
+                char buff[2000];
+                sprintf(buff, "OK %d\r\n%s", count, filenames);
+                send(client, buff, strlen(buff), 0);
+
+                int ret = recv(client, buf, sizeof(buf), 0);
+                if(ret < 0) {
+                    break;
+                }
+                buf[ret] = 0;
+                printf("Received from %d: %s\n", client, buf);
+                buf[ret] = '\0';
+                FILE *fp = fopen(buf, "rb");
+                
+                fseek(fp, 0, SEEK_END); // Di chuyển con trỏ tệp đến cuối file
+                long size = ftell(fp);  // Lấy vị trí con trỏ tệp, tức là kích thước file
+                fseek(fp,0,SEEK_SET);
+                sprintf(buf, "OK %ld\r\n", size);
+                send(client, buf, strlen(buf), 0);
+                printf("helo");
+            
+                // Đóng thư mục
+                closedir(dir);
+                fclose(fp);
+                close(client);
+            }
+            close(client);
+            exit(0);
         }
 
-        // Fork a new process to handle the client request
-        pid = fork();
-
-        if (pid < 0) {
-            perror("Fork failed");
-            exit(EXIT_FAILURE);
-        } else if (pid == 0) {
-            // Child process: handle client request
-            close(server_fd);
-
-            // Send file list to the client
-            send_file_list(client_socket);
-
-            // Receive the requested filename from client
-            char filename[BUFFER_SIZE];
-            memset(filename, 0, sizeof(filename));
-            read(client_socket, filename, sizeof(filename));
-
-            // Remove trailing newline character
-            filename[strcspn(filename, "\n")] = '\0';
-
-            // Send file content to the client
-            send_file_content(client_socket, filename);
-
-            // Close the client socket
-            close(client_socket);
-            exit(EXIT_SUCCESS);
-        } else {
-            // Parent process
-            close(client_socket);
-        }
+        close(client);
     }
 
-    // Close the server socket
-    close(server_fd);
+    getchar();
+    killpg(0, SIGKILL);
+
+    close(listener);
 
     return 0;
-}
-
-void send_file_list(int client_socket) {
-    DIR *dir;
-    struct dirent *ent;
-
-    dir = opendir(".");
-    if (dir == NULL) {
-        perror("Unable to open directory");
-        char *error_msg = "ERRORNofilestodownload\r\n";
-        write(client_socket, error_msg, strlen(error_msg));
-        close(client_socket);
-        exit(EXIT_FAILURE);
-    }
-
-    int file_count = 0;
-    char file_list[BUFFER_SIZE];
-    memset(file_list, 0, sizeof(file_list));
-
-    // Iterate over the directory entries and count files
-    while ((ent = readdir(dir)) != NULL) {
-        if (ent->d_type == DT_REG) {
-            file_count++;
-            strcat(file_list, ent->d_name);
-            strcat(file_list, "\r\n");
-        }
-    }
-
-    closedir(dir);
-
-    // Send the file list to the client
-    if (file_count > 0) {
-        char response[BUFFER_SIZE];
-        sprintf(response, "OK%d\r\n%s\r\n\r\n", file_count, file_list);
-        write(client_socket, response, strlen(response));
-    } else {
-        char *error_msg = "ERRORNofilestodownload\r\n";
-        write(client_socket, error_msg, strlen(error_msg));
-        close(client_socket);
-        exit(EXIT_FAILURE);
-    }
-}
-
-void send_file_content(int client_socket, char* filename) {
-    FILE *file = fopen(filename, "rb");
-
-    if (file == NULL) {
-        char *error_msg = "ERRORFileNotFound\r\n";
-        write(client_socket, error_msg, strlen(error_msg));
-
-        char response[BUFFER_SIZE];
-        memset(response, 0, sizeof(response));
-        read(client_socket, response, sizeof(response));
-
-        // Remove trailing newline character
-        response[strcspn(response, "\n")] = '\0';
-
-        // Retry with the new filename
-        send_file_content(client_socket, response);
-    } else {
-        // Calculate the file size
-        fseek(file, 0L, SEEK_END);
-        long file_size = ftell(file);
-        rewind(file);
-
-        // Send the file size to the client
-        char response[BUFFER_SIZE];
-        sprintf(response, "OK %ld\r\n", file_size);
-        write(client_socket, response, strlen(response));
-
-        // Send the file content to the client
-        char buffer[BUFFER_SIZE];
-        size_t bytes_read;
-
-        while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-            write(client_socket, buffer, bytes_read);
-        }
-
-        fclose(file);
-    }
 }
