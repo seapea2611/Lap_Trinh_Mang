@@ -70,7 +70,7 @@ void *client_thread(void *param)
         {
              DIR *dir;
             struct dirent *entry;
-            char rel_dir[256] = "../../";
+            char rel_dir[256] = "../..";
             strcat(rel_dir, uri);
             dir = opendir(rel_dir);
             if (dir != NULL)
@@ -104,7 +104,7 @@ void *client_thread(void *param)
         {
             DIR *dir;
             struct dirent *entry;
-            char rel_dir[256] = "../../";
+            char rel_dir[256] = "../..";
             strcat(rel_dir, uri);
             dir = opendir(rel_dir);
             if (dir != NULL)
